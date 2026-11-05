@@ -1,0 +1,60 @@
+Q4 – OPTICAL FLOW DANCE VIDEO : ALGORITHM DESCRIPTION
+=====================================================
+Course : Computer Vision Lab, Assignment 4
+
+INPUT
+  video/input_taichi_selfie.mp4 : 478x850, 30 fps, 600 frames (20 s), static camera, three people performing tai-chi arm movements.
+  (The clip is 20 s long, shorter than the 1-2 min suggested in the assignment; the code does not depend on the length.)
+  The clip has black letterbox bars (rows 0-83 and 766-849); they are excluded from feature detection.
+
+OUTPUT
+  video/flow_dance_on_black.mp4            : colour-coded optical flow on a black background (original audio kept)
+  video/flow_vs_original_side_by_side.mp4  : original | flow, for comparison
+  outputs/*.png, outputs/q4_per_frame_statistics.csv : figures and per-frame numbers used in the notebook
+
+ALGORITHM (for every consecutive frame pair t -> t+1)
+  1. Pre-processing: BGR -> grey. No smoothing or contrast change is applied.
+
+  2. DENSE OPTICAL FLOW  - DIS (Dense Inverse Search; Kroeger, Timofte, Dai, Van Gool, ECCV 2016), OpenCV cv2.DISOpticalFlow, preset MEDIUM.
+       * multi-scale (pyramid) patch matching: for each grid patch the displacement is found with an inverse Lucas-Kanade
+         (Gauss-Newton) search, which assumes brightness constancy and locally constant motion:  I(x+u, t+1) = I(x, t);
+       * the sparse patch flows are densified by averaging overlapping patches, weighted by their photometric error;
+       * a few variational refinement iterations (smoothness + data term) give the final (u, v) for every pixel.
+       Why DIS: it copes with fast arm swings (large displacements) thanks to the coarse-to-fine search, and it is fast.
+
+  3. COLOUR CODING (Middlebury style, same code for dense and sparse flow)
+       (u, v) -> polar (angle, magnitude);  HSV hue = angle (red = to the right, yellow/green = down, cyan = left, blue/violet = up);
+       saturation = 1;  value (brightness) = min(1, magnitude / 6 px/frame);  pixels with magnitude < 0.5 px/frame are black.
+       The fixed normalisation keeps colours comparable over the whole video. A colour wheel is drawn in the lower-left corner of the video.
+
+  4. SIFT FEATURES
+       cv2.SIFT_create(nfeatures=1500, contrastThreshold=0.02) on frame t (picture area only).
+       SIFT = scale-space extrema (difference of Gaussians), orientation assignment and 128-D gradient histograms.
+
+  5. SPARSE FLOW OF THE SIFT FEATURES
+       Pyramidal Lucas-Kanade (cv2.calcOpticalFlowPyrLK, window 21x21, 3 pyramid levels) t -> t+1.
+       Forward-backward check: the tracked points are tracked back t+1 -> t; features whose round-trip error is >= 0.5 px
+       or whose tracking status is 'lost' are discarded.
+       Background (camera) motion = median displacement of all verified features; it is subtracted.
+       A feature is 'moving' if its residual displacement is >= 0.8 px/frame.
+
+  6. RENDERING ON BLACK
+       canvas = 0.85 * colour-coded dense flow;  each moving feature = white dot + arrow (length x3, colour = its direction/speed);
+       fading trail of the moving features of the last 8 frames; frame counter and colour wheel in the margins.
+       Frames are written with cv2.VideoWriter and re-encoded with ffmpeg (H.264, CRF 20) together with the original audio.
+
+PARAMETERS : {'dis_preset': 2, 'mag_full': 6.0, 'mag_dense_min': 0.5, 'sift_contrast': 0.02, 'sift_max': 1500, 'lk_win': (21, 21), 'lk_levels': 3, 'fb_thresh': 0.5, 'move_thresh': 0.8, 'arrow_gain': 3.0, 'trail': 8}
+
+RESULTS (see notebook for plots)
+  moving SIFT vectors analysed: 64584, median speed 1.33 px/frame, 95th percentile 7.89 px/frame
+  mean number of SIFT keypoints per frame: 1499; verified tracks: 1460; moving: 326
+  mean flow magnitude over the picture: 0.47 px/frame (peak 1.85 at t = 18.3 s)
+  estimated background motion: median |dx|, |dy| = 0.084, 0.000 px/frame (camera is effectively static)
+
+LIMITATIONS
+  * Brightness-constancy / small-motion assumption: very fast hand motion (> ~15 px/frame) or motion blur gives under-estimated or noisy flow near the hands.
+  * Flow is only estimated between consecutive frames (no long-term tracking, no occlusion reasoning): pixels uncovered by a moving arm get unreliable flow.
+  * Textureless regions (plain clothes, sky, ground) have unreliable flow (aperture problem); the variational term fills them smoothly, so the interior of a uniformly coloured
+    sleeve shows a smoothed, not measured, motion. The threshold 0.5 px/frame hides most compression noise but also very slow motion.
+  * SIFT features on a static, blurry or textureless background are few; only the verified, moving ones are drawn, so some limbs have no arrows.
+  * Parameters (thresholds, normalisation of 6 px/frame, trail length) were chosen by eye, not tuned against ground-truth flow (none is available).
