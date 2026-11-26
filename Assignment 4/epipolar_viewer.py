@@ -113,8 +113,30 @@ class EpipolarViewer:
         # ipympl selects itself globally on its first import. Restore the caller's
         # backend before constructing our own canvases, so report plots stay inline.
         backend = matplotlib.get_backend()
-        from ipympl.backend_nbagg import Canvas, FigureManager
+
+        # Some Windows combinations of Matplotlib and ipympl reject ipympl's
+        # module backend while ipympl.__init__ calls matplotlib.use(). The
+        # viewer creates explicit ipympl canvases below, so skip only that
+        # package-level backend switch and leave all other use() calls intact.
+        use_backend = matplotlib.use
+
+        def use_ipympl_canvas(backend, *args, **kwargs):
+            if str(backend) == "module://ipympl.backend_nbagg":
+                return
+            return use_backend(backend, *args, **kwargs)
+
+        matplotlib.use = use_ipympl_canvas
+        try:
+            from ipympl.backend_nbagg import Canvas, FigureManager
+        finally:
+            matplotlib.use = use_backend
         if matplotlib.get_backend() != backend:
+            # Some Matplotlib versions cannot resolve ipympl's module backend
+            # through ``matplotlib.use`` once ipympl has switched the global
+            # backend.  This notebook uses the inline backend for its report
+            # plots, so restore that registered backend explicitly in this case.
+            if str(backend).startswith("module://ipympl."):
+                backend = "module://matplotlib_inline.backend_inline"
             matplotlib.use(backend)
 
         if self._widget is None:
