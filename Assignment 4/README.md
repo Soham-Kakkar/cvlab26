@@ -12,4 +12,4 @@
 | outputs/ | all figures and CSV tables (outputs/cache = cached matches) |
 
 Run notebooks from this folder (needs opencv-contrib, numpy, scipy, matplotlib, pandas, ffmpeg).
-Assumptions: Q1-C is synthetic (no real rotation pair given); Q3 assumes f=1400 px (full res), B=0.15 m (no calibration given).
+Q1 Task 2 and Q3 Task 1 also have interactive epipolar viewers using `epipolar_viewer.py`.
